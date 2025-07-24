@@ -1,12 +1,15 @@
 import { cargoQueue } from "async"
 import MiniSearch from "minisearch"
 
-import { capitalizeWord, filterObject, hashCode, unscopePackageName } from "#utility"
-import { CustomElementsManifest, ManifestCustomElementDeclaration, ManifestDeclaration, ManifestPropertyLike, MemberSettings, Package, SemVer, themes } from ".."
+import { capitalizeWord, deepUpdate, filterObject, hashCode, mergeDeep, set, unscopePackageName } from "#utility"
+import { createEditorState, createEditorStateConfig, CustomElementsManifest, EditorStateWithHead, ManifestCustomElementDeclaration, ManifestDeclaration, ManifestPropertyLike, MemberSettings, Package, SemVer, themes } from ".."
 import {version as appVersion} from "../../package.json"
 import { licenses, presets } from "../templates"
 import { ImportMap } from "@jspm/import-map"
 import { toJS } from "mobx"
+import { HTMLParserSerializer } from "#model/marshal/html.js"
+import scopedCustomElementRegistry from "@webcomponents/scoped-custom-element-registry/src/scoped-custom-element-registry.js?raw"
+import { get } from "lodash"
 
 type Options = {
   corePackages?: Package["name"][]
@@ -31,6 +34,32 @@ type PmQueueTask = {
 }
 
 type PackageCache = Record<string, Pick<Package, typeof Package["coreKeys"] | "members">>
+
+export const TEST_RESULT = Symbol("TEST_RESULT")
+
+export type TestResult = {
+  [TEST_RESULT]: true
+  id: string
+  path: string[]
+  passed: boolean
+  duration?: number
+  sync?: boolean
+  timedOut?: boolean
+}
+
+export type TestEventData = 
+  | {type: "beforeAll"}
+  | {
+    type: "beforeOne"
+    id: string
+    path: string[]
+  }
+  | {
+    type: "afterOne"
+  } & TestResult
+  | {type: "afterAll"}
+
+export type TestNode<T extends TestNode | TestResult = TestResult> = Record<string, T> | T
 
 const IMAGE_FILE_EXTENSIONS = [".apng", ".jpg", ".jpeg", ".jfif", ".pjpeg", ".pjp", ".png", ".svg", ".webp", ".bmp", ".ico", ".cur", ".tif", ".tiff"]
 const AUDIO_FILE_EXTENSIONS = [".wav", ".wave", ".mp3", ".aac", ".aacp", ".oga", ".flac", ".weba"]
@@ -75,6 +104,7 @@ export class Warning extends Error {}
 export class PackageStore {
 
   importMap: ImportMap = new ImportMap({})
+  testImportMap: ImportMap = new ImportMap({})
 
   resetOnInitialize = false
 
@@ -90,6 +120,10 @@ export class PackageStore {
 
   get installedPackages() {
     return JSON.parse(localStorage.getItem("webwriter_installedPackages") ?? "[]")
+  }
+
+  get installedPackagesAsPkg() {
+    return this.installedPackages.map(id => Package.fromID(id))
   }
 
   static get bundleOptions()  {return [
@@ -131,14 +165,14 @@ export class PackageStore {
     })
   }
 
-  static computeBundleID(importIDs: string[], production=false, lastLoaded?: number) {
-    return importIDs.join(";") + (production? " !PROD": "") + (lastLoaded? `!${lastLoaded}`: "")
+  static computeBundleID(importIDs: string[], production=false, lastLoaded?: number, testRun?: number) {
+    return importIDs.join(";") + (production? " !PROD": "") + (testRun !== undefined? `!TEST${testRun}`: "") + (lastLoaded? `!${lastLoaded}`: "")
   }
 
   /** Create a hash value to identify a bundle. The hash is deterministically computed from the packages' names and versions. This allows for caching of existing bundles. */
-  static computeBundleHash(importIDs: string[], production=false) {
+  static computeBundleHash(importIDs: string[], production=false, testRun?: number) {
     const ids = importIDs.map(id => id.replace(/-local\d+/, "-local"))
-    const bundleID = this.computeBundleID(ids, production)
+    const bundleID = this.computeBundleID(ids, production, undefined, testRun)
     return hashCode(bundleID).toString(36)
   }
 
@@ -192,8 +226,6 @@ export class PackageStore {
   initializing: boolean = false
   resetting: boolean = false
 
-  bundleJS: string = ""
-  bundleCSS: string = ""
   bundleID: string = ""
 
   packages: Record<string, Package> = {}
@@ -251,33 +283,39 @@ export class PackageStore {
     return this.searchIndex.search(query, {boost: {id: 5, name: 4, keywords: 3, version: 2, description: 1}, prefix: true, fuzzy: 1})
   }
 
-  async updateImportMap(ids: string[]=this.installedPackages) {
-    const url = new URL("_importmaps", this.apiBase)
-    url.searchParams.append("pkg", "true")
-    ids.forEach(id => url.searchParams.append("id", id))
+  async updateImportMap(ids: string[]=this.installedPackages, test=false, forcePkg=false) {
+    const url = new URL("_importmaps", this.apiBase);
+    (!test || forcePkg) && url.searchParams.append("pkg", "true")
+    ids.forEach(id => url.searchParams.append("id", test? id + ".js": id))
     const map = ids.length? await (await fetch(url)).json(): undefined
-    this.importMap = new ImportMap({map})
-    this.installedPackages = ids
+    if(test) {
+      this.testImportMap = new ImportMap({map})
+    }
+    else {
+      this.importMap = new ImportMap({map})
+      this.installedPackages = ids
+    }
   }
 
   async checkForMissingMembers(pkgs: Package[]) {
     const ids = pkgs.map(pkg => pkg.id)
-    const idsToCheck = Object.keys(this.importMap.imports).filter(id => ids.some(toCheck => id.startsWith(toCheck)))
-    return Promise.all(idsToCheck.map(async id => {
-      const url = this.importMap.resolve(id)
+    let settings = Object.fromEntries(ids.map(id => [id, this.getPackageMembers(id)]))
+    const membersToCheck = ids
+      .flatMap(id => Object.values(settings[id]).map(v => [id, v] as [string, MemberSettings]))
+      .flatMap(([id, v]) => v.url?.endsWith(".*")? [[id, {...v, url: v.url?.slice(0, -2) + ".js"}], [id, {...v, url: v.url?.slice(0, -2) + ".css"}]]: [[id, v]])
+      .filter(([id, v]) => pkgs.find(pkg => pkg.id === id)?.localPath || !(v as MemberSettings).name.startsWith("./tests/")) as [string, MemberSettings][]
+    return Promise.all(membersToCheck.map(async ([id, settings]) => {
       try {
-        const result = await fetch(url)
+        const result = await fetch(settings.url!)
         if(!result.ok) throw Error("Failed to fetch")
       } catch(err) {
         const pkgId = id.split("/").slice(0, 2).join("/")
-        if(id.split("/")[2] === "widgets" && url.endsWith(".css")) {
+        if(settings.name.split("/")[1] === "widgets" && settings.url?.endsWith(".css")) {
           return
         }
         else {
-          const type = id.split("/")[2].slice(0, -1)
-          const issue = new BundleIssue(`Missing ${type} '${id}'. Did you create an importable bundle, for example with 'npx @webwriter/build dev'? https://webwriter.app/docs/quickstart/`)
+          const issue = new BundleIssue(`Missing bundle file expected at '${settings.url?.slice(this.apiBase.length)}'. Did you create an importable bundle, for example with 'npx @webwriter/build dev'? https://webwriter.app/docs/quickstart/`)
           this.appendPackageIssues(pkgId, issue)
-          console.error(issue)
         }
       }
     }))
@@ -288,7 +326,6 @@ export class PackageStore {
     const toAddLocal = tasks.filter(t => t.command === "add" && t.handle).flatMap(t => ({handle: t.handle!, name: t.name}))
     const toRemove = tasks.filter(t => t.command === "remove").flatMap(t => t.parameters)
     const toUpdate = tasks.filter(t => t.command === "update").flatMap(t => t.parameters)
-    const toLink = tasks.filter(t => t.command === "add" && t.name)
     try {
       if(toRemove.length > 0) {
         try {
@@ -299,10 +336,6 @@ export class PackageStore {
         }
       }
       if(toAdd.length > 0) {
-        const names = Object.fromEntries(toAdd.map(key => [
-          key,
-          !key.startsWith("file://")? key: tasks.find(t => t.parameters.includes(key))!.name!
-        ]))
         try {
           this.installedPackages = [...this.installedPackages, ...toAdd]
         }
@@ -333,7 +366,12 @@ export class PackageStore {
       }
       if(toUpdate.length > 0) {
         try {
-          // TODO: Updating
+          const latestIDs = toUpdate
+            .map(id => Package.fromID(id))
+            .map(pkg => this.installed.find(ipkg => ipkg.name === pkg.name))
+            .filter(pkg => pkg?.latest)
+            .map(pkg => `${pkg!.name}@${pkg!.latest}`)
+          this.installedPackages = [...this.installedPackages.filter(id => !toUpdate.includes(id)), ...latestIDs]
         }
         catch(err) {
           console.error(err)
@@ -343,7 +381,7 @@ export class PackageStore {
     finally {
       await this.load()
       this.removing = {...this.removing, ...Object.fromEntries(toRemove.map(name => [name, false]))}
-      this.adding = {...this.adding, ...Object.fromEntries(toAdd.map(name => [name, false]))}
+      this.adding = {...this.adding, ...Object.fromEntries([...toAdd.map(name => [name, false]), ...toAddLocal.map(({name}) => [name + "-local", false])])}
       this.updating = {...this.updating, ...Object.fromEntries(toUpdate.map(name => [name, false]))}
     }
   }
@@ -421,10 +459,15 @@ export class PackageStore {
 
   async add(urlOrHandle: string | FileSystemDirectoryHandle, name?: string) {
     const id = typeof urlOrHandle === "string"? urlOrHandle: name!
-    const pkg = Package.fromID(id)
+    let pkg = Package.fromID(id)
+    if(typeof urlOrHandle !== "string") {
+      const version = pkg.version
+      version.prerelease = [...version.prerelease, "local"]
+      pkg = new Package({...pkg, version})
+    }
     const matchingPkg = this.installed.find(match => pkg.name === match.name)
     if(matchingPkg) {
-      const cancelled = !confirm(`Installing ${id} requires uninstalling ${matchingPkg.id}. Do you want to continue?`)
+      const cancelled = !confirm(`Installing ${pkg.id} requires uninstalling ${matchingPkg.id}. Do you want to continue?`)
       if(cancelled) {
         return
       }
@@ -435,12 +478,12 @@ export class PackageStore {
 
     if(typeof urlOrHandle === "string") {
       const url = urlOrHandle
-      this.adding = {...this.adding, [name ?? url]: true}
+      this.adding = {...this.adding, [pkg.id ?? url]: true}
       return this.pmQueue.push({command: "add", parameters: [url], name})
     }
     else {
       const handle = urlOrHandle
-      this.adding = {...this.adding, [name ?? handle.name]: true}
+      this.adding = {...this.adding, [pkg.id ?? handle.name]: true}
       return this.pmQueue.push({command: "add", parameters: [], handle, name})
     }
   }
@@ -450,11 +493,11 @@ export class PackageStore {
     return this.pmQueue.push({command: "remove", parameters: [name]})
   }
 
-  async update(name?: string) {
+  async update(name: string) {
     this.updating = name
       ? {...this.updating, [name]: true}
       : Object.fromEntries(this.packagesList.filter(pkg => pkg.installed).map(pkg => [pkg.id, true]))
-    return this.pmQueue.push({command: "update", parameters: name? [name, "--latest"]: ["--latest"]})
+    return this.pmQueue.push({command: "update", parameters: [name]})
   }
 
   get packagesList() {
@@ -466,6 +509,7 @@ export class PackageStore {
   }
 
   lastLoaded: number = 0
+  testRun: number = 0
   showUnstable: boolean = false
   showUnknown: boolean = false
 
@@ -476,7 +520,8 @@ export class PackageStore {
     this.loading = true
     this.issues = {}
     
-    let available = await this.fetchAvailable()
+    let available = await this.fetchPackages()
+    let installed = !this.installedPackages.length? []: (await this.fetchPackages(true)).map(pkg => pkg.extend({installed: true, latest: available.find(apkg => pkg.name === apkg.name)?.version})).filter(pkg => !pkg.version.prerelease.includes("local"))
     let final: Package[] = []
     const localIds = this.installedPackages.filter(id => Package.fromID(id).version.prerelease.includes("local"))
     let local = (await Promise.all(localIds.map(id => fetch(new URL(id + "/package.json", this.apiBase)).then(resp => resp.json()))))
@@ -485,9 +530,13 @@ export class PackageStore {
         version.prerelease = [...version.prerelease, "local"]
         return new Package({...json, version}, {installed: true, localPath: "hidden"})
       })
-    local = await Promise.all(local.map(async pkg => pkg.extend({members: await this.readPackageMembers(pkg)})))
+    local = await Promise.all(local
+      .map(async pkg => pkg.extend({editingConfig: await this.readEditingConfig(pkg)}))
+      .map(async pkg => (await pkg).extend({members: await this.readPackageMembers(await pkg)}))
+    )
+    available = available.filter(pkg => !installed.some(ipkg => ipkg.name === pkg.name) && !local.some(lpkg => lpkg.name === pkg.name))
     await this.updateLocalWatchIntervals(local)
-    final = available.map(pkg => pkg.extend({installed: this.installedPackages.includes(pkg.id)})).sort((a, b) => Number(!!b.installed) - Number(!!a.installed))
+    // available.map(pkg => pkg.extend({installed: !!this.installedPackagesAsPkg.find(ipkg => ipkg.name === pkg.name && !ipkg.version.prerelease.includes("local")), ...this.installedPackagesAsPkg.find(ipkg => ipkg.name === pkg.name && !ipkg.version.prerelease.includes("local"))? {version:  this.installedPackagesAsPkg.find(ipkg => ipkg.name === pkg.name && !ipkg.version.prerelease.includes("local"))!.version}: undefined, latest: pkg.version}))
     const snippetData = await this.getSnippet(undefined)
     const snippets = snippetData.map(({id, label, html}) => new Package({
       name: `snippet-${id}`,
@@ -496,7 +545,7 @@ export class PackageStore {
       html,
       editingConfig: {".": {label}}
     })).reverse()
-    final = [...snippets, ...local, ...final]
+    final = [...snippets, ...local, ...installed, ...available]
     await this.updateImportMap()
     this.bundleID = PackageStore.computeBundleID(this.installedPackages, false, final.some(pkg => pkg.localPath)? this.lastLoaded: undefined);
     (this.onBundleChange ?? (() => null))(final.filter(pkg => pkg.installed))
@@ -523,17 +572,22 @@ export class PackageStore {
     return url
   }
 
-  private async fetchAvailable() {
+  private async fetchPackages(installedOnly=false) {
     let rawPkgs: any[] = []
-    const resp = await fetch(new URL("_packages", this.apiBase))
+    let url = new URL("_packages", this.apiBase)
+    if(installedOnly) {
+      this.installedPackages.forEach(id => url.searchParams.append("id", id))
+    }
+    const resp = await fetch(url)
     if(resp.ok) {
       rawPkgs = await resp.json()
     }
-    const members = await Promise.all(rawPkgs.map(async pkg => this.readPackageMembers(pkg)))
+    const editingConfigs = await Promise.all(rawPkgs.map(async pkg => this.readEditingConfig(pkg)))
+    const members = await Promise.all(rawPkgs.map(async (pkg, i) => this.readPackageMembers({...pkg, editingConfig: editingConfigs[i]})))
     return rawPkgs.map((pkg, i) => {
       const trusted = PackageStore.allowedOrgs.some(org => pkg.name.startsWith(`${org}/`))
       try {
-        return new Package(pkg, {members: members[i], trusted})
+        return new Package({...pkg, editingConfig: editingConfigs[i]}, {members: members[i], trusted})
       }
       catch(err) {
         const parseIssues = JSON.parse((err as any)?.message)
@@ -560,20 +614,38 @@ export class PackageStore {
     // Warn for packages that register extra custom elements
   }
 
+  private async readEditingConfig(pkg: Package): Promise<Package["editingConfig"]> {
+    let _pkg = new Package(pkg)
+    const exports = _pkg.exports ?? {}
+    let externalEditingConfig
+    if("./editing-config.json" in exports) {
+      try {
+        const resp = await fetch(new URL(_pkg.id + exports["./editing-config.json"].slice(1), this.apiBase))
+        externalEditingConfig = JSON.parse(await resp.text())
+      }
+      catch(err) {
+        console.error(`Error reading external editing config: ${(err as Error).message}`)
+      }
+    }
+    return mergeDeep(externalEditingConfig ?? {}, pkg?.editingConfig ?? {})
+  }
+
   private async readPackageMembers(pkg: Package) {
-    const exports = pkg.exports ?? {}
-    const editingConfig = pkg?.editingConfig ?? {}
+    let _pkg = new Package(pkg)
+    const exports = _pkg.exports ?? {}
 
     const members = {} as Record<string, MemberSettings>
     for(const [rawName, p] of Object.entries(exports)) {
+      const path = (p as any)?.default ?? p
       const name = rawName.replace(/(\.html|\.\*|\.css)$/g, "")
       const isWidget = name.split("/").at(-2) === "widgets"
       const isSnippet = name.split("/").at(-2) === "snippets"
       const isTheme = name.split("/").at(-2) === "themes"
-      if(isWidget || isSnippet || isTheme) {
-        const memberSettings = editingConfig[name]
+      const isTest = name.split("/").at(-2) === "tests"
+      if(isWidget || isSnippet || isTheme || isTest) {
+        const memberSettings = pkg.editingConfig?.[name]
         let source: string | undefined
-        members[name] = {name, legacy: !rawName.endsWith(".*"), ...memberSettings, ...(source? {source}: undefined)}
+        members[name] = {name, path, legacy: isWidget && !rawName.endsWith(".*"), ...memberSettings, ...(source? {source}: undefined)}
       }
     }
     return members
@@ -595,21 +667,27 @@ export class PackageStore {
     return Object.values(this.packages).filter(pkg => pkg.isSnippet)
   }
 
-  getPackageMembers(id: string, filter?: "widgets" | "snippets" | "themes") {
+  getPackageMembers(id: string, filter?: "widgets" | "snippets" | "themes" | "tests") {
     const pkg = this.packages[id]
     const members = {} as any
     for(const [memberName, member] of Object.entries(pkg?.members ?? {})) {
       const is = {
         widgets: memberName.startsWith("./widgets/"),
         snippets: memberName.startsWith("./snippets/"),
-        themes: memberName.startsWith("./themes/") 
+        themes: memberName.startsWith("./themes/"),
+        tests: memberName.startsWith("./tests/")
       }
       const defaultLabel = memberName.replace(/\.\/\w+\//, "").split("-").slice(is.widgets? 1: 0).map(capitalizeWord).join(" ");
+      const url = `${this.apiBase}${id}${member.path.slice(1)}`
       if(!filter || is[filter]) {
-        members[memberName] = {...member, name: memberName, label: {_: defaultLabel, ...member.label}}
+        members[memberName] = {...member, name: memberName, url, label: {_: defaultLabel, ...member.label}}
       }
     }
-    return members
+    return members as Record<string, MemberSettings>
+  }
+
+  get tests() {
+    return Object.fromEntries(Object.keys(this.packages).map(id => [id, this.getPackageMembers(id, "tests")]))
   }
 
   get widgets() {
@@ -749,9 +827,9 @@ export class PackageStore {
         }
         const exports = pkg?.exports
         const exportPaths = Object.keys(exports as any)
-          .filter(k => k.startsWith("./widgets/") || k.startsWith("./snippets/") || k.startsWith("./themes/"))
+          .filter(k => k.startsWith("./widgets/") || k.startsWith("./snippets/") || k.startsWith("./themes/") || k.startsWith("./tests/"))
           .map(k => typeof (exports as any)[k] !== "string"? (exports as any)[k]?.default as string: (exports as any)[k] as string)
-          .flatMap(k => !k.endsWith(".*")? [k]: [k.slice(0, -2) + ".js", k.slice(0, -2) + ".css"])
+          .flatMap(k => !k.endsWith(".*")? [k]: [k.slice(0, -2) + ".js", ...(k.startsWith("./tests/")? []: [k.slice(0, -2) + ".css"])])
         const exportedFiles = (await Promise.all(exportPaths.map(async path => {
           try {
             return await this.resolveRelativeLocalPath(path, handle)
@@ -762,7 +840,14 @@ export class PackageStore {
 
         }))).filter(file => file)
         if(exportedFiles.some(file => file!.lastModified >= this.lastLoaded)) {
-          return this.load()
+          await this.load()
+          if(this.testPkg === pkg.id + "-local") {
+            await this.loadTestEnvironment(this.testPkg, false)
+          } 
+          if(this.testRunOnReload && this.testPkg === pkg.id + "-local") {
+            this.resetTests()
+            await this.runTest()
+          }
         }
   
       }, ms) as unknown as number
@@ -837,6 +922,149 @@ export class PackageStore {
       return undefined
     }
   }
+
+  createTestState(ids: string[]) {
+    const pkgs = ids.map(id => this.packages[id])
+    return createEditorState(createEditorStateConfig(pkgs))
+  }
+
+  testStatus: Record<string, "disabled" | "idle" | "pending" | "preparing" | Record<string, TestResult>> = {}
+  testLoading = false
+  testState?: EditorStateWithHead
+  testBundleID?: string
+  activeTest?: string
+  testRunOnReload = false
+
+  getTestTree(id: string) {
+    const data = this.testStatus[id]
+    if(typeof data === "string") {
+      return undefined
+    }
+    else {
+      const tree = {} as any
+      for(const key of Object.keys(data)) {
+        const result = data[key]
+        const flatResult = {...result} as any as Omit<TestResult, "path"> & {title: string}
+        delete (flatResult as any).path
+        flatResult.title = result.path.at(-1)!
+        set(tree, result.path, flatResult)
+      }
+      return tree
+    }
+  }
+
+  processTestUpdate(data: TestEventData, runNext=true) {
+    if(data.type === "beforeAll") {
+      this.testStatus = {
+        ...this.testStatus,
+        [this.activeTest!]: "preparing"
+      }
+    }
+    else if(data.type === "beforeOne" || data.type === "afterOne") {
+      const next = {
+        ...(typeof this.testStatus[this.activeTest!] === "string"? {}: this.testStatus[this.activeTest!] as any),
+        [data.id]: {[TEST_RESULT]: true, ...data}
+      }
+      delete next[data.id].type
+      this.testStatus = {
+        ...this.testStatus,
+        [this.activeTest!]: next
+      }
+    }
+    else if(data.type === "afterAll" && runNext && this.nextTestId) {
+      this.runTest(this.nextTestId)
+    }
+  }
+
+  set testPkg(value: string | undefined) {
+    if(value) {
+      const testIDs = Object.values(this.getPackageMembers(value, "tests")).map(test => value + test.name.slice(1))
+      this.testState = this.createTestState([value])
+      this.testStatus = Object.fromEntries(testIDs.map(id => [id, "idle"]))
+    }
+    else {
+      this.testBundleID = undefined
+    }
+  }
+
+  async loadTestEnvironment(value?: string, createState=true) {
+    this.testLoading = true
+    let id = value ?? this.local.at(0)?.id
+    if(id) {
+      const testIDs = Object.values(this.getPackageMembers(id, "tests")).map(test => id + test.name.slice(1))
+      this.testStatus = Object.fromEntries(testIDs.map(id => [id, "idle"]))
+      if(createState) {
+        this.testState = this.createTestState([id])
+      }
+      await this.updateImportMap(undefined, true, true)
+      this.testBundleID = PackageStore.computeBundleID(this.installed.map(pkg => pkg.id), false, this.lastLoaded, this.testRun)
+    }
+    this.testLoading = false
+  }
+
+  get nextTestId() {
+    return Object.keys(this.testStatus).find(k => this.testStatus[k] === "idle")
+  }
+
+  get testPkg() {
+    return Object.keys(this.testStatus)[0]?.split("/").slice(0, 2).join("/")
+  }
+
+  get testRunning() {
+    return Object.keys(this.testStatus).some(k => typeof k !== "string" || k === "pending" || k === "preparing")
+  }
+
+  get testingDisabled() {
+    return this.testRunning || Object.values(this.testStatus).every(v => v === "disabled")
+  }
+
+  get testData() {
+    return Object.fromEntries(Object.keys(this.testStatus).map(id => {
+      const pkgId = id.split("/").slice(0, 2).join("/")
+      const testId = "./" + id.split("/").slice(2).join("/")
+      return [id, this.tests[pkgId][testId]]
+    }))
+  }
+
+  setTestState(state: EditorStateWithHead) {
+    this.testState = state
+  }
+
+  toggleTestDisabled(id: string) {
+    const current = this.testStatus[id]
+    this.testStatus = {
+      ...this.testStatus,
+      [id]: current === "disabled"? "idle": "disabled"
+    }
+  }
+
+  resetTests() {
+    const testStatus = {...this.testStatus}
+    for(const k of Object.keys(testStatus)) {
+      testStatus[k] = typeof testStatus[k] !== "string" || testStatus[k] === "pending" || testStatus[k] === "preparing"? "idle": testStatus[k] 
+    }
+    this.testStatus = testStatus
+  }
+
+  async runTest(id: string | undefined = this.nextTestId) {
+    if(!id) {
+      return
+    }
+    this.activeTest = id
+    this.testStatus[id] = "pending"
+    // prepare test
+    const pkgId = id.split("/").slice(0, 2).join("/")
+    this.testState = this.createTestState([pkgId])
+    await this.updateImportMap([id], true)
+    // trigger execution
+    this.testBundleID = PackageStore.computeBundleID([id], false, this.lastLoaded, this.testRun)
+    this.testRun++
+  }
+
+  async stopTests() {
+    this.testRun++
+  }
+  
 }
 
 async function writeFile(root: FileSystemDirectoryHandle, path: string, content: string | Blob | BufferSource, ensurePath=false, overwrite=false) {

@@ -681,14 +681,6 @@
         <source>Delete the selection</source>
         <target>Usuń zaznaczenie</target>
       </trans-unit>
-      <trans-unit id="s95c161f68e5180a5">
-        <source>Inspect selection</source>
-        <target>Sprawdź wybór</target>
-      </trans-unit>
-      <trans-unit id="s4c1535f316305a2a">
-        <source>Inspect the selection</source>
-        <target>Sprawdź wybór</target>
-      </trans-unit>
       <trans-unit id="sbba0156f795d8c07">
         <source>Edit selection</source>
         <target>Edytuj wybór</target>
@@ -3255,9 +3247,6 @@
         <source>Set special value</source>
         <target>Ustaw wartość specjalną</target>
       </trans-unit>
-      <trans-unit id="scbf29ce484222325">
-        <source></source>
-      </trans-unit>
       <trans-unit id="sfb68cae41d749423">
         <source>Initial</source>
         <target>Początkowy</target>
@@ -3493,14 +3482,6 @@
       <trans-unit id="s5068560b8d39663d">
         <source>Clickable map</source>
         <target>Mapa z możliwością kliknięcia</target>
-      </trans-unit>
-      <trans-unit id="s814d528c8af55807">
-        <source>Definition list item</source>
-        <target>Pozycja na liście definicji</target>
-      </trans-unit>
-      <trans-unit id="s9c8df9626d152d5a">
-        <source>Definition list term</source>
-        <target>Termin z listy definicji</target>
       </trans-unit>
       <trans-unit id="s07808b0ca6da8fef">
         <source>Fenced Website</source>
@@ -3757,14 +3738,6 @@
       <trans-unit id="s84e9c7f8785ca60b">
         <source>Insert a form</source>
         <target>Wstaw formularz</target>
-      </trans-unit>
-      <trans-unit id="s3b3ea038c5d3bb06">
-        <source>Division</source>
-        <target>Podział</target>
-      </trans-unit>
-      <trans-unit id="se6cdad455e2d8c02">
-        <source>Insert a division</source>
-        <target>Wstaw podział</target>
       </trans-unit>
       <trans-unit id="sa5df1bcdba46c3fb">
         <source>Figure Caption</source>
@@ -4377,6 +4350,74 @@
       <trans-unit id="sdd1ff479d04ac140">
         <source>Public</source>
         <target>Publiczny</target>
+      </trans-unit>
+      <trans-unit id="s2474e7fb1aec9f05">
+        <source>Test</source>
+        <target>Test</target>
+      </trans-unit>
+      <trans-unit id="sc546f489f9c0cced">
+        <source>Toggles the test mode for the active document</source>
+        <target>Przełącza tryb testowy dla aktywnego dokumentu</target>
+      </trans-unit>
+      <trans-unit id="sb7c77d0415de05cf">
+        <source>Run tests</source>
+        <target>Uruchom testy</target>
+      </trans-unit>
+      <trans-unit id="s4dcb9315f6527f9c">
+        <source>Run on reload</source>
+        <target>Uruchom przy ponownym ładowaniu</target>
+      </trans-unit>
+      <trans-unit id="s0dc07f97c821463c">
+        <source>Comment selection</source>
+        <target>Wybór komentarzy</target>
+      </trans-unit>
+      <trans-unit id="s780099588362f80f">
+        <source>Definition item</source>
+        <target>Pozycja definicji</target>
+      </trans-unit>
+      <trans-unit id="s105540b7756c0232">
+        <source>Definition term</source>
+        <target>Termin definicji</target>
+      </trans-unit>
+      <trans-unit id="s98b1cb8fb62909ec">
+        <source>Group</source>
+        <target>Grupa</target>
+      </trans-unit>
+      <trans-unit id="s151349210ac1d2d8">
+        <source>Insert a group</source>
+        <target>Wstaw grupę</target>
+      </trans-unit>
+      <trans-unit id="s2739460e44320108">
+        <source>Chinese (Traditional)</source>
+        <target>Chiński (tradycyjny)</target>
+      </trans-unit>
+      <trans-unit id="sdc12d4d35420eeb7">
+        <source>Comments</source>
+        <target>Komentarze</target>
+      </trans-unit>
+      <trans-unit id="s74540c1b595a229c">
+        <source>TeX Formula</source>
+        <target>Formuła TeX</target>
+      </trans-unit>
+      <trans-unit id="sc221faca1ecb4aee">
+        <source>Anonymous</source>
+        <target>Anonimowy</target>
+      </trans-unit>
+      <trans-unit id="s0b7ae9543c001867">
+        <source>Reply</source>
+        <target>Odpowiedź</target>
+      </trans-unit>
+      <trans-unit id="s52fb1524cb25d7ab">
+        <source>New thread</source>
+        <target>Nowy wątek</target>
+      </trans-unit>
+      <trans-unit id="s4ce8cc041a628847">
+        <source>When the document language is changed, update all widgets' languages accordingly.</source>
+        <target>Po zmianie języka dokumentu należy odpowiednio zaktualizować języki wszystkich widżetów.</target>
+      </trans-unit>
+      <trans-unit id="s3bc203a3f8a6409c">
+        <source>Update language across document</source>
+        <target>Aktualizacja języka w całym dokumencie</target>
       </trans-unit>
     </body>
   </file>

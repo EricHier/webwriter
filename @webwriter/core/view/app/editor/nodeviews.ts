@@ -269,7 +269,7 @@ export class WidgetView implements NodeView {
     const isContextMenu = e.type === "contextmenu"
     const isFromInsideOptions = e.composedPath().some(el => {
       const isPartOptions = (el as HTMLElement)?.getAttribute?.("part") === "options"
-      const isInShadowDOMOfWidget = (el as HTMLElement).parentNode?.host?.classList.contains("ww-widget")
+      const isInShadowDOMOfWidget = (el as any).parentNode?.host?.classList.contains("ww-widget")
       return isPartOptions && isInShadowDOMOfWidget
     })
     const shouldBePropagated = (e as any)["shouldPropagate"] || this.node.type.spec.propagateEvents?.includes(e.type) || ((isFlowContainer || isTextblockOrInline) && !isFromInsideOptions)
@@ -401,21 +401,21 @@ export class DetailsView extends ElementView implements NodeView {
 
 	constructor(node: Node, view: EditorViewController, getPos: () => number) {
     super(node, view, getPos)
-    this.dom.addEventListener("mousedown", e => {
+    const summary = this.dom.querySelector("summary")
+    this.dom.addEventListener("click", e => {
       const el = e.target as HTMLElement
       if(el.tagName === "SUMMARY") {
+        e.preventDefault(); e.stopImmediatePropagation()
         const range = el.ownerDocument.createRange()
         range.selectNodeContents(el)
         const rangeRect = range.getBoundingClientRect()
         const ignoreX = rangeRect.left
         if(e.clientX <= ignoreX) {
           this.view.dispatch(this.view.state.tr.setNodeAttribute(this.getPos(), "open", !this.node.attrs.open))
-          e.stopImmediatePropagation()
-          e.preventDefault()
         }
       }
     })
-    this.dom.addEventListener("toggle", () => {
+    this.dom.addEventListener("toggle", (e: Event) => {
       if(Array.from(this.dom.children).some(el => el.matches("summary:only-child"))) {
         const p = this.dom.ownerDocument.createElement("p")
         this.dom.append(p)
@@ -485,6 +485,25 @@ export class MathView extends ElementView implements NodeView {
     
   }
 }
+/*
+export const WidgetViewReact = forwardRef<HTMLElement, NodeViewComponentProps>(function WidgetViewReact({children, nodeProps: {node, getPos}, ...props}, ref) {
+  const pkg = node.type.spec.package
+  const [tag, attrs] = widgetToDOM(pkg, !node.type.isLeaf)(node)
+  attrs.className = attrs.class
+  delete attrs.class
+  console.log(tag, {...props, ...attrs})
+  return html(tag, {...props, ...attrs, ref}, children)
+})
+
+export const ElementViewReact = forwardRef<HTMLElement, NodeViewComponentProps>(function ElementViewReact({children, nodeProps: {node, getPos}, ...props}, ref) {
+  const pkg = node.type.spec.package
+  const tag = node.type.name
+  const attrs = toAttributes(node)
+  attrs.className = attrs.class
+  delete attrs.class
+  console.log(tag, {...props, ...attrs})
+  return html(tag, {...props, ...attrs, ref}, children)
+})*/
 
 export const nodeViews = {
   "_widget": WidgetView,
