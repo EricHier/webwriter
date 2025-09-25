@@ -144,7 +144,7 @@ export default {
         } catch (error) {
           console.warn('Could not read source file for full JSDoc extraction:', error.message);
         }
-        `).join('\\n')}
+        `).join('\n')}
       }
     }
   ]
