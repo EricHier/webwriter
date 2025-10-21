@@ -157,6 +157,33 @@ const toolDefinitions = [
                 required: ["query", "content"]
             }
         }
+    },
+    // Neues Tool: Sichere Methodenausführung auf Widgets
+    {
+        type: "function",
+        function: {
+            name: "invoke_widget_method",
+            description: "Call a public, documented method on an existing custom widget element in the current document. Only methods declared in the widget's custom-elements.json are allowed.",
+            parameters: {
+                type: "object",
+                properties: {
+                    query: {
+                        type: "string",
+                        description: "CSS selector to locate the widget element inside the current document. First match is used."
+                    },
+                    method: {
+                        type: "string",
+                        description: "The public method name to call as documented in custom-elements.json."
+                    },
+                    args: {
+                        type: "array",
+                        description: "Optional JSON-serializable arguments array to pass to the method.",
+                        items: {}
+                    }
+                },
+                required: ["query", "method"]
+            }
+        }
     }
 
 ];
@@ -166,7 +193,8 @@ export const toolFriendlyNames = {
     "fetch_widget_documentation": msg("Read widget documentation..."),
     "replace_in_document": msg("Replace content..."),
     "insert_into_element": msg("Insert into element..."),
-    "get_list_of_installable_widgets": msg("Get list of installable widgets...")
+    "get_list_of_installable_widgets": msg("Get list of installable widgets..."),
+    "invoke_widget_method": msg("Invoke widget method...")
 }
 
 /**
@@ -266,6 +294,13 @@ export async function generateWidgetDocumentation(app: App, name: string): Promi
                     type: (e.type && (e.type.text || e.type.name)) || null,
                 }));
 
+                const methods = (decl.members || []).filter((m: any) => m.kind === 'method' || m.kind === 'function').filter((m: any) => m.privacy !== 'private' && m.privacy !== 'protected').map((m: any) => ({
+                    name: m.name || null,
+                    description: m.description || null,
+                    return: m.return || null,
+                    parameters: m.parameters || null,
+                }));
+
                 return {
                     tagName: decl.tagName || decl.name || null,
                     name: decl.name || null,
@@ -275,12 +310,14 @@ export async function generateWidgetDocumentation(app: App, name: string): Promi
                     attributes,
                     slots,
                     events,
+                    methods,
                     source: decl.source || null,
                 };
             });
 
         customElements.push(...simplified);
-    } catch (e) {
+    } catch
+        (e) {
         console.error(`Error fetching custom-elements.json from ${installedWidgetUrl}/custom-elements.json`, e);
     }
 
@@ -323,7 +360,8 @@ export class AIStore {
         content: string;
         timestamp: Date,
         isUpdate: boolean,
-        tool_calls?: any | null
+        tool_calls?: any | null,
+        tool_call_id?: string | null,
     }[] = [];
 
     // Abort controller for the current in-flight request (if any)
@@ -335,6 +373,9 @@ export class AIStore {
 
     // Internal flag to indicate cancellation requested
     private _cancelled: boolean = false;
+
+    // Cache für erlaubte Widget-Methoden je TagName
+    private _widgetMethodAllowlist: Map<string, Set<string>> = new Map();
 
     /* The toolResolvers are functions that are called when a tool is requested by the AI, corresponding to the functions defined for the AI above */
     toolResolvers = {
@@ -506,6 +547,140 @@ export class AIStore {
                 message: `Content suggestion has been created for the selected element.`,
             };
         },
+        // Neues Tool: Sichere Methodenaufrufe auf Widgets
+        invoke_widget_method: async (app: App, {query, method, args = []}: {
+            query: string,
+            method: string,
+            args?: any[]
+        }) => {
+            const editor = app.activeEditor?.pmEditor as ProsemirrorEditor | undefined;
+            if (!editor) {
+                return {success: false, message: 'No active editor available.'};
+            }
+
+            const root = (editor as any).dom as Element | undefined;
+            if (!root) {
+                return {success: false, message: 'Editor DOM not available.'};
+            }
+
+            const el = root.querySelector(query) as any;
+            if (!el) {
+                return {success: false, message: `No element found for query: ${query}`};
+            }
+
+            const tag = (el.tagName || '').toLowerCase();
+            if (!tag.includes('-')) {
+                return {success: false, message: 'Selected element is not a custom element.'};
+            }
+
+            // Hilfsfunktionen
+            const sanitizeArgs = (input: any): any => {
+                const seen = new WeakSet();
+                const walk = (v: any): any => {
+                    const t = typeof v;
+                    if (v == null || t === 'string' || t === 'number' || t === 'boolean') return v;
+                    if (t === 'function') return undefined;
+                    if (v instanceof Element || (typeof Node !== 'undefined' && v instanceof Node)) return undefined;
+                    if (t === 'object') {
+                        if (seen.has(v)) return undefined;
+                        seen.add(v);
+                        if (Array.isArray(v)) return v.map(walk).filter(x => x !== undefined);
+                        const out: any = {};
+                        for (const [k, val] of Object.entries(v)) {
+                            const w = walk(val);
+                            if (w !== undefined) out[k] = w;
+                        }
+                        return out;
+                    }
+                    try {
+                        return JSON.parse(JSON.stringify(v));
+                    } catch {
+                        return String(v);
+                    }
+                };
+                return walk(input);
+            };
+
+            const serializeResult = (res: any) => {
+                try {
+                    if (res instanceof Element) return {type: 'element', tag: res.tagName?.toLowerCase()};
+                    if (typeof res === 'function') return {type: 'function'};
+                    if (res && typeof res === 'object') return JSON.parse(JSON.stringify(res));
+                    return res;
+                } catch {
+                    return String(res);
+                }
+            };
+
+            const ensureAllowlistForTag = async (tagName: string): Promise<Set<string>> => {
+                const cached = this._widgetMethodAllowlist.get(tagName);
+                if (cached) return cached;
+
+                // Suche passendes Paket und lese custom-elements.json, um Methoden zu ermitteln
+                const pkgs = app.store.packages.installed || [];
+                let methods = new Set<string>();
+                for (const pkg of pkgs) {
+                    try {
+                        const base = app.store.packages.packetApiBaseUrl(pkg);
+                        const url = `${base}/custom-elements.json`;
+                        const resp = await fetch(url);
+                        if (!resp.ok) continue;
+                        const data = await resp.json();
+                        const decls = (data.modules || []).flatMap((m: any) => m.declarations || []);
+                        const match = decls.find((d: any) => (d.tagName || d.name || '').toLowerCase() === tagName);
+                        if (match) {
+                            const members = (match.members || [])
+                                .filter((m: any) => (m.kind === 'method' || m.kind === 'function') && m.name)
+                                .map((m: any) => m.name as string);
+                            methods = new Set(members);
+                            break;
+                        }
+                    } catch (e) {
+                        // ignore package errors, continue searching others
+                    }
+                }
+                this._widgetMethodAllowlist.set(tagName, methods);
+                return methods;
+            };
+
+            const allowed = await ensureAllowlistForTag(tag);
+            if (!allowed.size) {
+                return {
+                    success: false,
+                    message: `No documented public methods found for <${tag}>. Fetch its widget documentation first or ensure the widget exposes methods in custom-elements.json.`
+                };
+            }
+
+            if (!allowed.has(method)) {
+                return {
+                    success: false,
+                    message: `Method "${method}" is not allowed for <${tag}>. Allowed: ${Array.from(allowed).join(', ')}`
+                };
+            }
+
+            // Weitere einfache Schutzregeln
+            if (/^(on|addEventListener|removeEventListener|attachShadow|constructor)/.test(method)) {
+                return {success: false, message: 'Blocked method by policy.'};
+            }
+
+            const safeArgs = Array.isArray(args) ? sanitizeArgs(args) : [];
+
+            try {
+                const call = el[method];
+                if (typeof call !== 'function') {
+                    return {success: false, message: `Property "${method}" is not a function on <${tag}>.`};
+                }
+
+                const result = await Promise.race([
+                    Promise.resolve(call.apply(el, safeArgs)),
+                    new Promise((_, rej) => setTimeout(() => rej(new Error('Method call timed out')), 4000))
+                ]);
+
+                return {success: true, result: serializeResult(result)};
+            } catch (err: any) {
+                return {success: false, message: `Invocation failed: ${err?.message || String(err)}`};
+            }
+        }
     }
 
     addMessage({role, content, isUpdate = false, timestamp, tool_calls = null}: {
@@ -712,7 +887,7 @@ export class AIStore {
                     }
 
                     // ToDo: what about the additional attributes not in type definition?
-                    this.chatMessages = this.chatMessages.concat(resolvedToolCalls);
+                    this.chatMessages = this.chatMessages.concat(resolvedToolCalls as any);
                 } else {
 
                     /* we have a response without tool requests */
