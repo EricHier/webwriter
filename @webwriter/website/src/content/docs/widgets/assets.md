@@ -7,7 +7,7 @@ order: 307
 Widgets may use different external assets such as images (or even audio and video), WebAssembly files, custom resources, and so on. This section shows how to use some of the most common types of assets in a widget.
 
 ## How assets are handled in WebWriter
-When a widget is loaded into WebWriter (by installing a package), WebWriter bundles the package using [`esbuild`](https://esbuild.github.io/) and imports the resulting bundle. This means that a widget may include any [type of asset that `esbuild` allows](https://esbuild.github.io/content-types/). Bundling is used again when the author saves the explorable, as all widgets are combined into a single, minimal bundle and the bundle source is embedded into the explorable. 
+When a package is built using `@webwriter/build`, it is bundled using [`esbuild`](https://esbuild.github.io/). This means that a widget may include any [type of asset that `esbuild` allows](https://esbuild.github.io/content-types/). 
 
 ## JS
 JS is the default asset type. It can be the entry point of your widget with `"exports": {... "./widgets/my-widget": "./widgets/my-widget.js"}` configured in `package.json`. Any files imported in your entry point are also bundled (this applies recursively) according to normal bundler behavior.
@@ -95,6 +95,20 @@ class MyWidget extends LitElement {
 As shown in the example, this approach is most useful for using multiple small assets such as a set of icons for the widget.
 
 Larger media assets such as most video and audio files are not intended to be part of a widget's source. Since these assets would be bundled into every explorable that includes the widget, they would massively increase the widget's size, and slow down both authoring and usage of the explorable.
+
+## Web Workers
+Web workers are supported. To import a web worker, bundling its code and getting as a string, prefix the worker path with `worker:`. The worker code supports the same features and assets as the main file (TypeScript, assets, etc.). 
+
+**foo.worker.ts** or **foo.worker.js**
+```js
+postMessage("hello from worker")
+```
+
+**mywidget.ts**
+```js
+import MyWorkerRaw from "worker:./foo.worker"
+const worker = new Worker(URL.createObjectURL(new Blob([MyWorkerRaw])))
+```
 
 ## WebAssembly
 WebAssembly is not supported yet.

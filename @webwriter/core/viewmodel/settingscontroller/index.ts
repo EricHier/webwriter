@@ -15,6 +15,8 @@ import {
   PocketbaseAccount,
 } from "#model/schemas/account.js"
 
+console.log(allLocales)
+
 type OmitFunctions<T> = Pick<
   T,
   {
@@ -225,7 +227,8 @@ export class SettingsController implements ReactiveController {
       "yo": { label: msg("Yoruba") },
       "za": { label: msg("Zhuang") },
       "zu": { label: msg("Zulu") },
-      "zh-hans": { label: msg("Chinese (Simplified)") },
+      "zh-Hans": { label: msg("Chinese (Simplified)") },
+      "zh-Hant": { label: msg("Chinese (Traditional)") },
       "pt-PT": { label: msg("Portuguese") },
       "nb": { label: msg("Norwegian Bokmål") },
       "pt-BR": { label: msg("Portuguese (Brazil)") },
@@ -251,6 +254,16 @@ export class SettingsController implements ReactiveController {
             ),
           label: msg("Language"),
         },
+        propagateLang: {
+          schema: z
+            .boolean()
+            .describe(
+              msg(
+                "When the document language is changed, update all widgets' languages accordingly."
+              )
+            ),
+          label: msg("Update language across document"),
+        },  
         autosave: {
           schema: z
             .boolean()

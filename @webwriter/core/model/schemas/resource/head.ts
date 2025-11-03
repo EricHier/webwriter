@@ -5,6 +5,9 @@ import {SchemaSpec, Schema, DOMParser, DOMSerializer, Node, Fragment, Attrs} fro
 import {EditorView} from "prosemirror-view"
 import webwriterPackage from "../../../package.json"
 import { themes } from "."
+import { commentMarkSpec } from "./comment";
+import { sameMembers, shallowCompare } from "#model/utility/index.js"
+import { isEqual } from "lodash"
 
 export const headSchemaSpec = {
   topNode: "head",
@@ -14,12 +17,13 @@ export const headSchemaSpec = {
 
     head: HTMLElementSpec({
       tag: "head",
+      marks: "_comment",
       attrs: {
         htmlAttrs: {default: undefined as undefined | Attrs, private: true} as any},
         content: "(link | meta | title | base | style | script | noscript)*"
       }),
     
-    link: HTMLElementSpec({tag: "link", attrs: {
+    link: HTMLElementSpec({tag: "link", marks: "_comment", attrs: {
       as: {default: undefined as undefined | "audio" | "document" |"embed" | "fetch" | "font" | "image" | "object" | "script" | "style" | "track" | "video" |"worker"},
       crossorigin: {default: undefined as undefined | "anonymous" | "use-credentials"},
       fetchpriority: {default: undefined as undefined | "high" | "low" | "auto"},
@@ -38,26 +42,26 @@ export const headSchemaSpec = {
       blocking: {default: undefined as undefined | "render"}
     }}),
     
-    meta: HTMLElementSpec({tag: "meta", attrs: {
+    meta: HTMLElementSpec({tag: "meta", marks: "_comment", attrs: {
       charset: {default: undefined as undefined | string},
       content: {default: undefined as undefined | string},
       "http-equiv": {default: undefined as undefined | "content-security-policy" | "content-type" | "default-style" | "x-ua-compatible" | "refresh"},
       name: {default: undefined as undefined | string}
     }}),
 
-    title: HTMLElementSpec({tag: "title", content: "text*"}),
+    title: HTMLElementSpec({tag: "title", marks: "_comment", content: "text*"}),
     
-    base: HTMLElementSpec({tag: "base", attrs: {
+    base: HTMLElementSpec({tag: "base", marks: "_comment", attrs: {
       href: {default: undefined},
       target: {default: "_self" as "_self" |"_blank" | "_parent" | "_top"},
     }}),
     
-    style: HTMLElementSpec({tag: "style", content: "text*", attrs: {
+    style: HTMLElementSpec({tag: "style", marks: "_comment", content: "text*", attrs: {
       blocking: {default: undefined as undefined | "render"},
       media: {default: undefined as undefined | string}
     }}),
     
-    script: HTMLElementSpec({tag: "script", content: "text*", attrs: {
+    script: HTMLElementSpec({tag: "script", marks: "_comment", content: "text*", attrs: {
       async: {default: undefined as undefined | boolean},
       crossorigin: {default: undefined as undefined | string},
       defer: {default: undefined as undefined | boolean},
@@ -70,7 +74,10 @@ export const headSchemaSpec = {
       blocking: {default: undefined as undefined | boolean}
     }}),
 
-    noscript: HTMLElementSpec({tag: "noscript", content: "(meta | link | style)*"})
+    noscript: HTMLElementSpec({tag: "noscript", marks: "_comment", content: "(meta | link | style)*"})
+  },
+  marks: {
+    _comment: commentMarkSpec
   }
 } as SchemaSpec
 
@@ -249,9 +256,20 @@ export const headParser = DOMParser.fromSchema(headSchema)
 
 export type EditorStateWithHead =  EditorState & {"head$": EditorState}
 
+const key = new PluginKey("head")
+
+export function headEqual(a: EditorState | undefined, b: EditorState | undefined) {
+  if(!a || !b) {
+    return false
+  }
+  const attrsEqual = isEqual(a.doc.attrs, b.doc.attrs)
+  const contentEqual = a.doc.content.eq(b.doc.content)
+  return attrsEqual && contentEqual
+}
+
 export function head(styles: string[], scripts: string[]) {
   return new Plugin({
-    key: new PluginKey("head"),
+    key,
     state: {
       init(config, instance) {
         return initialHeadState()
@@ -283,13 +301,18 @@ export function head(styles: string[], scripts: string[]) {
 
       return {
         update(view: EditorView & {state: EditorStateWithHead}, prevState: EditorStateWithHead) {
-          if(!view.state.head$.doc.eq(prevState.head$.doc)) {
-            const headDOM = headSerializer.serializeNode(view.state.head$.doc)
-            headDOM.childNodes.forEach(node => head.appendChild(node))
+          const head$ = view.state.head$
+          const prevHead$ = prevState.head$
+          if(!headEqual(head$, prevHead$)) {
+            const head = view.dom.ownerDocument.head
+            const headDOM = headSerializer.serializeNode(head$.doc)
+            const oldNodes = head.querySelectorAll("[data-ww-editing]")
+            oldNodes.forEach(node => headDOM.appendChild(node))
+            head.replaceWith(headDOM)
           }
         },
         destroy() {
-          const oldNodes = head.querySelectorAll("[data-ww-editing]")
+          const oldNodes = view.dom.ownerDocument.head.querySelectorAll("[data-ww-editing]")
           oldNodes.forEach(node => node.remove())
         }
       }

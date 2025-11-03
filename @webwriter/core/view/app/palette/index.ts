@@ -16,7 +16,8 @@ import { spreadProps } from "@open-wc/lit-helpers"
 import IconPackage from "@tabler/icons/outline/package.svg"
 import { styleMap } from "lit/directives/style-map.js"
 import { guard } from "lit/directives/guard.js"
-
+import { cache } from "lit/directives/cache.js"
+import styles from "./index.style"
 
 // https://github.com/lit/lit-element/issues/1099#issuecomment-731614025
 class FlipDirective extends Directive {
@@ -154,768 +155,7 @@ export class Palette extends LitElement {
     }
   }
 
-	static styles = css`
-
-    :host {
-      display: grid;
-      grid-template-columns: repeat(12, 1fr);
-      grid-auto-rows: 40px;
-      max-width: 500px;
-      margin-left: auto;
-      padding-bottom: 5px;
-      gap: 4px;
-      grid-auto-flow: row dense;
-      max-height: 100%;
-      overflow-y: auto;
-      overflow-x: hidden;
-      position: relative;
-      scrollbar-width: thin;
-      scrollbar-gutter: stable;
-      box-sizing: border-box;
-    }
-
-    :host([data-no-scrollbar-gutter]) {
-      padding-right: 11px;
-    }
-
-    .inline-commands-wrapper {
-      display: contents;
-    }
-
-    .package-card {
-
-      &.local {
-        font-style: italic;
-      }
-
-      &::part(base) {
-        --padding: 10px;
-        min-width: 180px;
-        height: 100%;
-        position: relative;
-        display: block;
-      }
-
-      &::part(body) {
-        height: 100%;
-        overflow-y: hidden;
-        display: flex;
-        flex-direction: row;
-        align-items: center;
-        justify-content: center;
-        padding: 0;
-      }
-
-      & .title {
-        display: flex;
-        gap: 0.5ch;
-        flex-direction: row;
-        align-items: center;
-        font-size: 0.9rem;
-        height: 2ch;
-        user-select: none;
-        width: 100%;
-        height: 100%;
-        padding: 5px;
-        box-sizing: border-box;
-        & span {
-          overflow: hidden;
-          text-overflow: ellipsis;
-          /*text-wrap: nowrap;*/
-          width: calc(100%);
-          display: block;
-          box-sizing: border-box;
-        }
-
-        & .package-icon {
-          font-size: 1.25rem;
-          width: 24px;
-          height: 24px;
-          filter: grayscale(1);
-        }
-      }
-
-      &:hover {
-        cursor: pointer;
-        z-index: 100000;
-      }
-
-      &.error .title {
-        color: var(--sl-color-danger-600);
-      }
-
-      & .error-button {
-        color: var(--sl-color-danger-800);
-
-        &:hover {
-          color: var(--sl-color-danger-600);
-        }
-      } 
-
-      &.error sl-tooltip {
-        --max-width: 500px;
-      }
-
-      &:not(.error) .error-button {
-        display: none;
-      }
-
-      & sl-progress-bar {
-        width: 100%;
-        --height: 2px;
-        position: absolute;
-        bottom: 0;
-        left: 0;
-      }
-
-      & .package-tooltip {
-        --show-delay: 1000;
-        --max-width: 400px;
-        word-wrap: break-word;
-      }
-
-      & .package-tooltip::part(base__arrow) {
-        color: var(--sl-color-gray-950);
-        background: var(--sl-color-gray-950);
-      }
-
-      & .package-tooltip::part(body) {
-        background: rgba(241, 241, 241, 0.95);
-        border: 2px solid var(--sl-color-gray-400);
-        color: var(--sl-color-gray-950);
-        z-index: 100000;
-      }
-
-      & .package-tooltip > [slot=content] {
-        display: flex;
-        flex-direction: column;
-        gap: 5px;
-      }
-    }
-    
-    .inline-card {
-      order: 2;
-      &::part(base) {
-        --padding: 10px;
-        min-width: 100%;
-        min-height: 100%;
-        box-sizing: border-box;
-      }
-
-      & .title {
-        justify-content: center;
-      }
-    }
-
-    .block-card, .snippet-card {
-      order: 1;
-      grid-column: span 6;
-
-      &::part(body) {
-        justify-content: flex-start;
-        position: relative;
-      }
-
-      &:not(.installed):not(.snippet-card):not(:hover) {
-        color: var(--sl-color-gray-400);
-        &::part(base) {
-          background: var(--sl-color-gray-50);
-          box-shadow: none;
-        }
-        & .package-icon {
-          opacity: 0.5;
-        }
-      }
-
-      &:is(.installed, .snippet-card):not(.error) .title:hover {
-        color: var(--sl-color-primary-600);
-
-        & .package-icon {
-          filter: grayscale(1) invert(33%) sepia(98%) saturate(869%) hue-rotate(169deg) brightness(101%) contrast(102%);
-        }
-      }
-
-      &:not(.installed):not(.error):not(.snippet-card):hover {
-        color: var(--sl-color-success-700);
-
-        & .package-icon {
-          filter: grayscale(1) invert(34%) sepia(12%) saturate(4549%) hue-rotate(99deg) brightness(101%) contrast(84%);
-        }
-      }
-
-      &:not(.outdated) .update {
-        display: none;
-      }
-
-      &:is(.installed, :hover) .manage-controls {
-        background: rgba(255, 255, 255, 0.85);
-      }
-
-      & .manage-controls {
-        position: absolute;
-        right: 0;
-        top: 0;
-        display: flex;
-        flex-direction: row;
-        justify-content: flex-end;
-        align-items: stretch;
-        height: 100%;
-        margin-right: 5px;
-      }
-
-      & .manage::part(icon) {
-        font-size: 20px;
-        padding: 2px;
-      }
-
-      & .pin::part(base) {
-        padding: 0;
-      }
-
-      &.installed .pin::part(base):hover, &.installed:has(.pin:hover) .title {
-        color: var(--sl-color-danger-700) !important;
-
-        & .package-icon {
-          filter: grayscale(1) invert(11%) sepia(98%) saturate(3672%) hue-rotate(352deg) brightness(107%) contrast(92%);
-        }
-      }
-
-      &:not(.installed):not(.error):not(.snippet-card) .pin::part(base):hover, &:not(.installed):has(.pin:hover) .title {
-        color: var(--sl-color-success-700) !important;
-      }
-
-      & .update::part(base):hover, &:is(:has(.update:hover), :has(.unpin:hover)) .title {
-        color: var(--sl-color-warning-700) !important;
-      }
-
-      &:not(.installed):not(.error):not(.snippet-card):hover :is(.title, .pin::part(base):hover) {
-        color: var(--sl-color-success-700) !important;
-      }
-
-      &.snippet-card .unpin::part(base):hover {
-        color: var(--sl-color-danger-700) !important;
-      }
-
-      &.adding sl-progress-bar {
-        --indicator-color: var(--sl-color-success-700);
-      }
-
-      &.updating sl-progress-bar {
-        --indicator-color: var(--sl-color-warning-700);
-      }
-
-      &.removing sl-progress-bar {
-        --indicator-color: var(--sl-color-danger-700);
-      }
-
-      &.found .title {
-        font-weight: bold;
-      }
-
-      &:not(.local) .watch-button {
-        display: none;
-      }
-
-      &.error .dropdown-trigger {
-        display: none;
-      }
-
-      & .dropdown-trigger {
-        &::part(base) {
-          padding: 0;
-          margin-right: 5px;
-        }
-      }
-    }
-
-    .container-card {
-      order: 0;
-      grid-row: span 2;
-
-      &:hover {
-        color: var(--sl-color-primary-600);
-      }
-
-      &::part(base) {
-        min-width: unset;
-      }
-
-      & .title {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        position: relative;
-
-        & .container-icon {
-          --icon-size: 24px;
-          width: 24px;
-          height: 24px;
-        }
-
-        & .dropdown-trigger {
-          position: absolute;
-          bottom: 4px;
-        }
-
-        & .dropdown-trigger::part(icon) {
-          --icon-size: 16px;
-          width: 16px;
-          height: 16px;
-          color: var(--sl-color-gray-600);
-        }
-      }
-
-      & .sub-command {
-
-        &::part(label) {
-          display: flex;
-          flex-direction: row;
-          align-items: center;
-          gap: 1ch;
-          padding-right: 0.5ch;
-        }
-
-        & .container-icon {
-          --icon-size: 20px;
-          width: 20px;
-          height: 20px;
-        }
-      }
-    }
-
-    .snippet-card {
-      grid-column: span 6;
-
-      & .snippet-label, & .title {
-        justify-content: space-between;
-      }
-
-      & .snippet-label::part(base) {
-        border: none;
-        align-items: center;
-        height: calc(var(--sl-input-height-small) - 6px);
-        background: none;
-        margin-left: -2px;
-      }
-
-      & .snippet-label::part(input) {
-        padding-left: 2px;
-        font-size: 0.9rem;
-        color: black;
-      }
-
-      & .unpin:not(:hover)::part(base) {
-        color: black !important;
-      }
-    }
-
-    :host(:not([managing])) {
-      & .snippet-label::part(base) {
-        cursor: pointer;
-        opacity: 1;
-        user-select: none;
-      }
-    }
-
-    #pin-preview {
-      background: none;
-      font-weight: bold;
-      color: var(--sl-color-primary-700);
-      grid-column: span 6;
-
-      & .title {
-        display: flex;
-        flex-direction: row;
-        justify-content: space-between;
-      }
-    }
-
-    #package-toolbar {
-      background: var(--sl-color-gray-100);
-      z-index: 100;
-      position: sticky;
-      top: 0;
-      left: 0;
-      grid-row: 1;
-      grid-column: span 12;
-      display: flex;
-      flex-direction: row;
-      justify-content: flex-end;
-      align-items: center;
-      gap: 1ch;
-
-
-      & #package-search {
-
-        width: 100%;
-        --sl-input-spacing-small: 3px;
-
-        cursor: text;
-
-        &::part(base) {
-          background: none;
-          padding: 0;
-          position: relative;
-        }
-
-        &::part(clear-button) {
-          font-size: 1.15rem;
-          position: absolute;
-          right: 0;
-          top: 0;
-          bottom: 0;
-          margin: auto 0;
-        }
-
-        &::part(input) {
-          width: 100%;
-        }
-
-        &:not(:focus-within) #filter-button {
-          display: none;
-        }
-      }
-
-      & #package-button {
-        position: relative;
-        & #packages-spinner {
-          font-size: 1.75rem;
-          position: absolute;
-          top: 0;
-          left: 0;
-        }
-      }
-
-      & sl-icon {
-        cursor: text;
-      }
-    }
-
-    .local-package-dialog {
-      position: relative;
-      & ww-button {
-        align-self: center;
-      }
-    }
-
-    :host([managing]) #package-button {
-      background: var(--sl-color-primary-200);
-      border-radius: 100%;
-    }
-
-    :host(:not([managing])) :is(#add-local, .package-card:not(.watching) .watch-button, .manage:not(.watch-button), .block-card:not(.installed)) {
-      display: none;
-    }
-
-    :host(:not([managing])) .watch-button {
-      margin-right: 2ch;
-    }
-
-    :host(:is([managing], :not(:hover))) .dropdown-trigger {
-      visibility: hidden;
-    }
-
-    .container-card:not(.multiple) .dropdown-trigger {
-      visibility: hidden,
-    }
-
-    .package-card:not(.multiple) .dropdown-trigger {
-      display: none;
-    }
-
-    .other-insertables-menu {
-      padding: 0;
-      overflow-y: auto;
-      scrollbar-width: thin;
-      max-height: var(--auto-size-available-height);
-
-      & .applied-theme::part(label) {
-        font-weight: bolder;
-      }
-    }
-
-    .other-insertables-menu sl-menu-item::part(checked-icon) {
-      display: none;
-    }
-
-    .other-insertables-menu sl-menu-item::part(submenu-icon) {
-      display: none;
-    }
-
-    .other-insertables-menu sl-menu-item::part(base) {
-      font-size: 0.9rem;
-    }
-
-    #clipboard-card {
-
-      grid-row: span 2;
-
-      &::part(base) {
-        min-width: unset;
-        color: var(--sl-color-gray-600);
-      }
-
-      &::part(base):hover {
-        color: var(--sl-color-primary-600);
-      }
-    }
-
-    #add-local {
-      order: 1000001;
-      grid-column: span 6;
-      user-select: none;
-
-      &:hover {
-        color: var(--sl-color-indigo-700);
-      }
-
-      &:not(:hover)::part(base) {
-        background: none;
-        box-shadow: none;
-      }
-
-      &[data-disabled] {
-        cursor: not-allowed;
-        opacity: 0.75;
-      }
-
-      &::part(body) {
-        display: flex;
-        flex-direction: row;
-        justify-content: center;
-        gap: 1ch;
-        font-size: 0.9rem;
-        color: var(--sl-color-gray-800);
-        padding-left: 0.5ch;
-        padding-right: 0.5ch;
-      }
-    }
-
-    .package-context-menu {
-      z-index: 1000000;
-      background: var(--sl-color-gray-100);
-    }
-
-    .error-pane {
-      font-size: 0.75rem;
-      margin-bottom: 1.5rem;
-    }
-
-    .error-content {
-      padding-right: 1ch;
-    }
-
-    @media only screen and (max-width: 1830px) {
-      :host {
-        grid-template-columns: repeat(6, 1fr);
-      }
-
-      #package-toolbar {
-        grid-column: span 6;
-      }
-    }
-
-    @media only screen and (max-width: 1380px) {
-      :host {
-				display: flex;
-				flex-direction: row;
-				align-items: stretch;
-				background: #f1f1f1;
-        padding-top: 5px;
-				height: 60px;
-        width: 100%;
-				border-top: 1px solid lightgray;
-				border-right: 1px solid lightgray;
-				box-shadow: 0 -1px 2px hsl(240 3.8% 46.1% / 12%);;
-				box-sizing: border-box;
-				gap: 0.5rem;
-				padding-right: 0;
-        max-width: unset;
-        overflow-x: scroll;
-        scrollbar-width: thin;
-        // overflow-y: hidden;
-      }
-
-      :host(:not([managing])) .watch-button {
-        display: none;
-      }
-
-      .package-card {
-        flex-shrink: 0;
-
-        &::part(base) {
-          min-width: unset;
-        }
-
-        & .manage::part(icon) {
-          font-size: 16px;
-        }
-
-        &:not(:hover) .manage {
-          display: none;
-        }
-
-        &.error {
-          cursor: help;
-        }
-
-        &.error .pin {
-          display: none;
-        }
-        
-        & .dropdown-trigger {
-          transform: rotate(180deg);
-        }
-      }
-
-      .container-card {
-        & .title {
-          & sl-icon {
-            --icon-size: 16px;
-            width: 16px;
-            height: 16px;
-          }
-        }
-
-        & .dropdown-trigger::part(icon) {
-          visibility: hidden;
-        }
-      }
-      #add-local {
-        margin-right: 1ch;
-      }
-
-      #package-toolbar {
-        padding-left: 5px;
-      }
-
-      #package-search:not(:focus-within)[data-invalid] {
-        width: 2.125ch !important;
-      }
-
-      :host([managing]) #package-search {
-        min-width: 200px;
-      }
-      
-      #package-search:is(:focus-within, :not([data-invalid])) {
-        min-width: 200px;
-      }
-    }
-
-    @media only screen and (min-width: 1130px) {
-      #toggleToolbox {
-        display: none;
-      }
-    }
-
-    #toggleToolbox[data-active] {
-      background: var(--sl-color-primary-200);
-      border-radius: 100%;
-    }
-
-    #toggleToolbox {
-      width: 30px;
-      height: 30px;
-      align-self: center;
-    }
-
-    .package-keywords {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 5px;
-    }
-
-    .package-keyword {
-      border: 1px solid var(--sl-color-gray-950);
-      border-radius: 5px;
-      background: var(--sl-color-gray-200);
-      padding: 0 5px;
-      display: flex;
-      align-items: center;
-      gap: 5px;
-      font-size: 0.9em;
-
-      & sl-icon {
-        font-size: 20px;
-      }
-
-      &.package-programme {
-        background: var(--sl-color-green-100);
-      }
-
-      &.package-field {
-        background: white;
-      }
-
-      &.package-widget-type {
-        background: var(--sl-color-orange-100);
-      }
-
-      &.package-online-status {
-        background: var(--sl-color-blue-100);
-      }
-
-      &.package-locale {
-        background: var(--sl-color-red-100);
-      }
-    }
-
-		
-    /*
-
-		@media only screen and (max-width: 1300px) {
-
-      .container-choices {
-        flex-wrap: nowrap;
-        order: -1;
-      }
-
-      .package-card:not(.container-card)::part(base) {
-        width: unset;
-        padding: 0 0.5ch;
-      }
-		}
-
-		@media only screen and (min-width: 1301px) {
-			:host {
-				display: block;
-				height: calc(100vh - 49px);
-				padding: 0;
-			}
-
-			[part=widget-choices] {
-				display: flex;
-				flex-direction: column-reverse;
-				flex-wrap: wrap;
-				align-items: flex-end;
-				justify-content: flex-end;
-				overflow-x: auto;
-				overflow-y: hidden;
-				height: calc(100vh - 49px - 50px);
-				gap: 0 10px;
-				padding: 10px;
-				box-sizing: border-box;
-			}
-
-			[part=widget-choices] > * {
-				display: block;
-			}
-
-		}
-
-    */
-
-    :host(.intro-target) *, .intro-target {
-      animation: blink-color 1.5s linear infinite;
-    } 
-
-    @keyframes blink-color {
-      50% {
-        color: var(--sl-color-primary-600);
-      }
-    }
-	`
+	static styles = styles
 
 	private handleClickCard(pkg: Package | Command, snippetName?: string) {
     const isLeaf = "name" in pkg
@@ -1007,13 +247,13 @@ export class Palette extends LitElement {
     const found = id in this.searchResults
     const error = packages.getPackageIssues(pkg.id).length
     const members = packages.getPackageMembers(pkg.id)
-    const insertables = members? Object.values(filterObject(members, (_, ms) => !(ms as any).uninsertable) as unknown as Record<string, MemberSettings>): []
+    const insertables = members? Object.values(filterObject(members, (_, ms) => !(ms as any).uninsertable && !ms.name.startsWith("./tests/")) as unknown as Record<string, MemberSettings>): []
     const pkgEditingSettings = !packageEditingSettings? undefined: {name: undefined, label: undefined, ...packageEditingSettings}
     const {name: firstName, label: firstLabel} =  (pkgEditingSettings?.label? pkgEditingSettings: undefined) ?? insertables[0] ?? {}
     const otherInsertables = insertables.slice(1)
-    return html`<sl-card id=${pkg.id} @contextmenu=${(e: any) => {this.contextPkg = pkg; e.preventDefault()}} data-package-name=${name} @mouseenter=${() => this.handleMouseenterInsertable(pkg)} @mouseleave=${() => this.handleMouseleaveInsertable(pkg)} class=${classMap({"package-card": true, "block-card": true, installed: !!installed, error, adding, removing, updating, outdated, watching: !!watching, found, local: !!localPath, multiple: insertables.length > 1})} style=${styleMap({order})} ?inert=${changing}>
-		<sl-tooltip placement="top" class="package-tooltip" hoist trigger="hover">
-			<span class="title" @click=${() => this.handleClickCard(pkg, firstName)}>
+
+    const cardLabel = html`
+      <span class="title" @click=${() => this.handleClickCard(pkg, firstName)}>
         <img class="package-icon" src=${iconUrl? iconUrl: IconPackage}>
         ${firstLabel?._ ?? prettifyPackageName(pkg.name)}
       </span>
@@ -1030,22 +270,61 @@ export class Palette extends LitElement {
       <sl-popup flip anchor=${pkg.id} class="other-insertables" strategy="fixed" placement="bottom-end" sync="width" ?active=${this.dropdownOpen === pkg.id} auto-size="both" auto-size-padding=${1}>
         <sl-menu class="other-insertables-menu">
           ${otherInsertables.map(v => html`<sl-menu-item class=${classMap({"applied-theme": pkg.id + v.name.slice(1) === this.app.store.document.themeName})} @click=${() => this.handleClickCard(pkg, v.name)}>
-            ${v.label!._}
+            ${v.label?.[this.app.store.ui.locale] ?? v.label!._}
           </sl-menu-item>`)}
         </sl-menu>
       </sl-popup>
+    `
+    return html`<sl-card id=${pkg.id} @contextmenu=${(e: any) => {this.contextPkg = pkg; e.preventDefault()}} data-package-name=${name} @mouseenter=${() => this.handleMouseenterInsertable(pkg)} @mouseleave=${() => this.handleMouseleaveInsertable(pkg)} class=${classMap({"package-card": true, "block-card": true, installed: !!installed, error, adding, removing, updating, outdated, watching: !!watching, found, local: !!localPath, multiple: insertables.length > 1})} style=${styleMap({order})} ?inert=${changing}>
+		<sl-tooltip placement="top" class="package-tooltip" hoist trigger=${this.testMode? "manual": "hover"}>
+      ${cardLabel}
 		</sl-tooltip>
 		<sl-progress-bar ?indeterminate=${changing}></sl-progress-bar>
 	</sl-card>`
   }
 
+  SemanticMarkCard = () => {
+    const cmds = this.app.commands.semanticMarkCommands
+    if(!cmds.length) {
+      return null
+    }
+    const cmd = cmds[0]
+    return html`<sl-card id="semantic-mark-card" class=${classMap({"package-card": true, "container-card": true, "multiple": cmds.length > 1})} ?inert=${cmd.disabled} @click=${() => this.handleClickCard(cmd)} @mouseenter=${() => this.handleMouseenterInsertable(cmd)} @mouseleave=${() => this.handleMouseleaveInsertable(cmd)}>
+      <sl-tooltip placement="left-start" class="package-tooltip" hoist trigger="hover">
+        <span class="title">
+          <sl-icon class="container-icon" name=${cmd.icon ?? "square"}></sl-icon>
+          <ww-button variant="icon" class="dropdown-trigger" icon=${this.dropdownOpen !== cmd.group? "chevron-down": "chevron-up"} @click=${(e: any) => this.dropdownOpen = this.dropdownOpen? null: cmd.group!} @mouseenter=${() => this.dropdownOpen = cmd.group!}></ww-button>
+        </span>
+        <span slot="content">
+          <b><code>${cmd.label}</code></b>
+          <div>${cmd.description || msg("No description provided")}</div>
+        </span>
+      </sl-tooltip>
+      <sl-popup flip anchor=${cmd.group ?? cmd.id} class="other-insertables" strategy="fixed" placement="bottom-start" ?active=${this.dropdownOpen === cmd.group} auto-size="both" auto-size-padding=${1}>
+          <sl-menu class="other-insertables-menu">
+            ${cmds.map(c => html`<sl-menu-item class="sub-command" @click=${(e: any) => {this.handleClickCard(c); e.stopPropagation()}}>
+              <sl-checkbox size="small"></sl-checkbox>
+              <sl-icon class="container-icon" name=${c.icon ?? "square"}></sl-icon>
+              ${c.label}
+            </sl-menu-item>`)}
+          </sl-menu>
+        </sl-popup>
+        <sl-progress-bar></sl-progress-bar>
+    </sl-card>`
+  }
+
   @property({type: String})
   editingID: string
+
+  focusSnippetTitle(id?: string) {
+    const selector = !id? ".snippet-card sl-input": `#${id} sl-input`
+    return (this.shadowRoot?.querySelector(selector) as any)?.focus()
+  }
 
   SnippetCard = (pkg: Package & {_: {html: string}}) => {
     const {name, editingConfig, _: {html: snippetHtml}} = pkg
     const label = (editingConfig ?? {})["."]?.label?._ ?? prettifyPackageName(name)
-    return html`<sl-card class=${classMap({"package-card": true, "snippet-card": true})}>
+    return html`<sl-card id=${pkg.id} class=${classMap({"package-card": true, "snippet-card": true})}>
       <span @click=${() => this.handleClickCard(pkg)} class="title" @mouseenter=${() => this.handleMouseenterInsertable(pkg)} @mouseleave=${() => this.handleMouseleaveInsertable(pkg)}>
         ${this.managing
           ? html`<sl-input style=${`width: ${label.length}ch`} class="snippet-label" size="small" type="text" value=${label} @focusin=${(e: any) => {e.preventDefault(); e.stopPropagation()}} @click=${(e: any) => {e.preventDefault(); e.stopPropagation()}} @sl-change=${(e: any) => {this.app.store.packages.putSnippet(name, {id: parseInt(name.split("-").at(-1)!), html: snippetHtml, label: {_: e.target.value}}); this.blur()}}></sl-input>`
@@ -1103,9 +382,18 @@ export class Palette extends LitElement {
   @query("#package-search")
   packageSearch: SlInput
 
+  get searchPlaceholder() {
+    if(!this.app.store.packages.installed.length || !this.packageSearch?.value && this.packageSearch?.matches(":focus-within")) {
+      return msg("Find packages...")
+    }
+    else {
+      return ""
+    }
+  }
+
   PackageToolbar() {
-    return html`<div id="package-toolbar">
-      <sl-input id="package-search" placeholder=${!this.app.store.packages.installed.length? msg("Find packages..."): ""} required type="search" size="small" @sl-input=${this.handleSearchInput} @focus=${() => this.managing = true} clearable>
+    return html`<div id="package-toolbar" >
+      <sl-input id="package-search" autocomplete="off" placeholder=${this.searchPlaceholder} required type="search" size="small" @sl-input=${this.handleSearchInput} @focus=${() => this.managing = true} clearable>
         <sl-icon slot="prefix" name="search" @click=${(e: any) => this.packageSearch.focus()}></sl-icon>
         <!--<ww-button id="filter-button" variant="icon" slot="suffix" icon="filter" @click=${(e: any) => this.packageSearch.focus()}></ww-button>-->
       </sl-input>
@@ -1291,6 +579,18 @@ export class Palette extends LitElement {
     </span>`
   }
 
+  PackageAITested(pkg: Package) {
+    const tested = pkg.keywords?.includes("ww-ai-tested")
+    if(!tested) {
+      return undefined
+    }
+
+    return html`<span class="package-keyword package-ww-ai-tested">
+      <sl-icon name="robot"></sl-icon>
+      <span>${msg("WebWriter AI Compatible")}</span>
+    </span>`
+  }
+
   PackageWidgetTypes(pkg: Package) {
     return pkg.widgetTypes?.map(type => {
       return html`<span class="package-keyword package-widget-type">
@@ -1314,6 +614,7 @@ export class Palette extends LitElement {
         ${this.PackageFields(pkg)}
         ${this.PackageOnlineStatus(pkg)}
         ${this.PackageProgramme(pkg)}
+        ${this.PackageAITested(pkg)}
         ${pkg.nonstandardKeywords?.map(kw => this.PackageKeyword(kw))}
       </div>
     `
@@ -1343,7 +644,6 @@ export class Palette extends LitElement {
   ClipboardCard() {
     return html`<sl-card id="clipboard-card" class=${classMap({"package-card": true})} @click=${() => this.emitInsert("@webwriter/core", "clipboard")}>
       <sl-icon name="clipboard"></sl-icon>
-      <sl-progress-bar></sl-progress-bar>
     </span>
 	</sl-card>`
   }
@@ -1404,8 +704,8 @@ export class Palette extends LitElement {
     unlocalVersion.prerelease = unlocalVersion.prerelease.filter(v => v !== "local")
     await this.app.store.packages.writeLocal(packageForm.directoryHandle!, pkg.extend({version: unlocalVersion}), options)
     this.packageForm.reset()
-    let directoryHandle = packageForm.directoryHandle
-    await this.app.store.packages.add(directoryHandle!, pkg.id)
+    // let directoryHandle = packageForm.directoryHandle
+    // await this.app.store.packages.add(directoryHandle!, pkg.id)
     if(packageForm.editingState.watching) {
       this.emitWatchWidget(pkg.id)
     } 
@@ -1525,6 +825,7 @@ export class Palette extends LitElement {
         this.managing = false
       }
     })
+    this.app.activeEditor!.requestUpdate()
   }
 
   protected updated(changed: PropertyValues) {
@@ -1555,6 +856,7 @@ export class Palette extends LitElement {
       ${this.ToolboxToggle()}
       ${this.app.commands.groupedContainerCommands.map(this.Card)}
       ${this.ClipboardCard()}
+      ${this.SemanticMarkCard()}
       ${this.editingStatus != "pinning"? undefined: this.PinPreview()}
       ${guard([...this.app.store.packages.filteredPackages, this.app.store.packages.changingID, this.dropdownOpen, this.searchResults, this.app.store.ui.locale, this.app.store.document.lang, this.managing], () => this.app.store.packages.filteredPackages.map(this.Card))}
       ${this.AddLocalPackageButton()}

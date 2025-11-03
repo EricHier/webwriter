@@ -2,11 +2,13 @@
 
 import * as esbuild from "esbuild"
 import * as fs from "fs"
+import * as path from "path"
 import * as process from "process"
-import * as child_process from "child_process"
 import {localize} from "./localize.js"
+import {document} from "./document.js"
 import 'dotenv/config'
 import esbuildPluginInlineImport from "esbuild-plugin-inline-import"
+import { inlineWorkerPlugin } from "@aidenlx/esbuild-plugin-inline-worker"
 
 const scriptExtensions = [".js", ".mjs", ".cjs"]
 
@@ -24,7 +26,38 @@ const widgetPlugin = pkg => ({
       return {external: isDependency && (isScript || isBare)}
     })
   }
-}) 
+})
+
+const wasmPlugin = {
+  name: 'wasm',
+  setup(build) {
+    build.onResolve({ filter: /\.wasm$/ }, args => {
+      if (args.namespace === 'wasm-stub') {
+        return {
+          path: args.path,
+          namespace: 'wasm-binary',
+        }
+      }
+      if (args.resolveDir === '') {
+        return
+      }
+      return {
+        path: path.isAbsolute(args.path) ? args.path : path.join(args.resolveDir, args.path),
+        namespace: 'wasm-stub',
+      }
+    })
+    build.onLoad({ filter: /.*/, namespace: 'wasm-stub' }, async (args) => ({
+      contents: `import wasm from ${JSON.stringify(args.path)}
+        export default (imports) =>
+          WebAssembly.instantiate(wasm, imports).then(
+            result => result.instance.exports)`,
+    }))
+    build.onLoad({ filter: /.*/, namespace: 'wasm-binary' }, async (args) => ({
+      contents: await fs.promises.readFile(args.path),
+      loader: 'binary',
+    }))
+  },
+}
 
 
 
@@ -32,13 +65,28 @@ async function main() {
   const isDev = process.argv[2] === "dev"
   const isPreview = process.argv[2] === "preview"
   const isLocalize = process.argv[2] === "localize"
+  const isDocument = process.argv[2] === "document"
+  const force = process.argv.slice(2).includes("-y") || process.argv.slice(2).includes("--yes")
   if(isLocalize) {
     try {
-      await localize()
+      console.log("\nLocalizing...")
+      await localize(force)
       return
     }
     catch(err) {
       console.error(err?.message ?? String(err))
+      return
+    }
+  }
+  else if(isDocument) {
+    try {
+      console.log("\nDocumenting...")
+      await document()
+      return
+    }
+    catch(err) {
+      console.error(err?.message ?? String(err))
+      return
     }
   }
 
@@ -48,18 +96,20 @@ async function main() {
   }
 
 
-  // Build with WebWriter's default options for building. Builds every `package.exports` entry of the form `"./my-widget.*": {"source": "./src/my-widget.ts", "default": "./dist/my-widget.*"} -> this should build `my-widget.js` and `my-widget.css` from the specified source into the dist directory.
+  // Build with WebWriter's default options for building. Builds every `package.exports` entry of the form `"./widgets/my-widget.*": {"source": "./src/my-widget.ts", "default": "./dist/my-widget.*"} -> this should build `my-widget.js` and `my-widget.css` from the specified source into the dist directory.
   const pkg = JSON.parse(fs.readFileSync("./package.json", "utf8"))
-  const widgetKeys = Object.keys(pkg?.exports ?? {}).filter(k => k.startsWith("./widgets/"))
+  const buildableKeys = Object.keys(pkg?.exports ?? {}).filter(k => k.startsWith("./widgets/"))
+  const testKeys = Object.keys(pkg?.exports ?? {}).filter(k => k.startsWith("./tests/"))
 
-  const config = {
+  const baseConfig = {
     write: true,
     bundle: true,
     plugins: [
-      esbuildPluginInlineImport()
-      //widgetPlugin(pkg)
+      esbuildPluginInlineImport(),
+      // wasmPlugin()
+      // widgetPlugin(pkg)
     ],
-    entryPoints: widgetKeys.map(k => ({out: pkg.exports[k].default.replace(".*", ""), in: pkg.exports[k].source})),
+    entryPoints: buildableKeys.map(k => ({out: pkg.exports[k].default.replace(".*", "").replace(".js", ""), in: pkg.exports[k].source})),
     outdir: ".",
     target: "es2022",
     format: "esm",
@@ -104,11 +154,22 @@ async function main() {
       ".ttf": "dataurl",
       ".otf": "dataurl",
       ".pdf": "dataurl",
+      ".wasm": "dataurl"
     }
   }
 
+  const config = {...baseConfig, plugins: [
+    ...baseConfig.plugins,
+    inlineWorkerPlugin({watch: isDev, buildOptions: () => baseConfig})
+  ]}
+
   if(isDev) {
-    let ctx = await esbuild.context(config)
+    const devConfig = {
+      ...config,
+      sourcemap: "inline",
+      entryPoints: [...testKeys, ...buildableKeys].map(k => ({out: pkg.exports[k].default.replace(".*", "").replace(".js", ""), in: pkg.exports[k].source})),
+    }
+    let ctx = await esbuild.context(devConfig)
     await ctx.watch()
   }
   else if(isPreview) {
@@ -116,9 +177,10 @@ async function main() {
     const key = `./widgets/${rawKey}.*`
     const path = pkg.exports[key].default.replace(".*", "")
     const contents = `
+      <base href="/">
       <script src="https://cdn.jsdelivr.net/npm/@webcomponents/scoped-custom-element-registry"></script>
-      <script defer src="${rawKey + ".js"}" type="module"></script>
-      <link rel="stylesheet" href="${rawKey + ".css"}" type="text/css">
+      <script defer src="${path + ".js"}" type="module"></script>
+      <link rel="stylesheet" href="${path + ".css"}" type="text/css">
       <${rawKey}></${rawKey}>
     `
     fs.writeFileSync("./dist/index.html", contents, "utf8")

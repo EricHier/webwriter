@@ -221,7 +221,9 @@ export const WidgetEditingSettings = z.object({
   cssCustomProperties: z.record(CSSCustomPropertyName, z.string()).optional(),
   label: z.record(z.string()).optional(),
   uninsertable: z.boolean().optional(),
-  propagateEvents: z.array(z.string()).optional()
+  propagateEvents: z.array(z.string()).optional(),
+  warningIgnorePattern: z.string().optional(),
+  errorIgnorePattern: z.string().optional(),
 })
 
 export type SnippetEditingSettings = z.infer<typeof SnippetEditingSettings>
@@ -314,7 +316,7 @@ export const WebWriterPackageName = z.string()
   .pipe(NpmName)
 
 
-export type MemberSettings = {name: string, legacy: boolean} & ((SnippetEditingSettings | ThemeEditingSettings) & {source: string} | WidgetEditingSettings)
+export type MemberSettings = {name: string, path: string, url?: string, legacy: boolean} & ((SnippetEditingSettings | ThemeEditingSettings) & {source: string} | WidgetEditingSettings)
 
 
 export interface Package extends z.infer<typeof Package.objectSchema> {}
@@ -534,7 +536,8 @@ export class Package {
     const isWidgetLang = kw.startsWith("widget-lang-")
     const isWidgetOnlineStatus = ["widget-online", "widget-online-edit", "widget-online-use"].includes(kw)
     const isWebWriterMarker = kw === "webwriter-widget"
-    return isProgramme || isField || isWidgetType || isWidgetLang || isWidgetOnlineStatus || isWebWriterMarker
+    const isAIKeyword = kw === "ww-ai-tested"
+    return isProgramme || isField || isWidgetType || isWidgetLang || isWidgetOnlineStatus || isWebWriterMarker || isAIKeyword
   }
 
   get nonstandardKeywords() {
